@@ -80,12 +80,12 @@ import {
 } from 'firebase/firestore';
 
 // --- Firebase Initialization ---
-// Use environment variables (Vite style) or fallback to global variables for legacy hosting
+// Detect if we have a real Firebase config or should run in demo/offline mode
 const firebaseConfig = (() => {
-  // Try Vite env vars first
-  if (import.meta.env.VITE_FIREBASE_API_KEY) {
+  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+  if (apiKey && apiKey !== 'demo-api-key') {
     return {
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      apiKey,
       authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
       projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
       storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
@@ -93,16 +93,21 @@ const firebaseConfig = (() => {
       appId: import.meta.env.VITE_FIREBASE_APP_ID,
     };
   }
-  // Fallback to global variable (legacy hosting)
   if (typeof __firebase_config !== 'undefined') {
-    return JSON.parse(__firebase_config);
+    try { return JSON.parse(__firebase_config); } catch { return null; }
   }
-  return {};
+  return null;
 })();
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+const IS_DEMO_MODE = !firebaseConfig;
+
+let app, auth, db;
+if (!IS_DEMO_MODE) {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+}
+
 const appId = import.meta.env.VITE_APP_ID || (typeof __app_id !== 'undefined' ? __app_id : 'default-app-id');
 
 // --- Icon Wrapper System ---
@@ -713,7 +718,16 @@ export default function DeXinProjectManager() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // --- Auth: Demo mode uses fake user, Firebase mode uses anonymous auth ---
   useEffect(() => {
+    if (IS_DEMO_MODE) {
+      setUser({ uid: 'demo-user' });
+      setProjects([...SEED_PROJECTS]);
+      setPersonnel([...SEED_PERSONNEL]);
+      setVendors([...SEED_VENDORS]);
+      setAuthLoading(false);
+      return;
+    }
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -728,8 +742,9 @@ export default function DeXinProjectManager() {
     return () => unsubscribe();
   }, []);
 
+  // --- Data Sync: Demo mode uses local state, Firebase mode uses Firestore ---
   useEffect(() => {
-    if (!user) return;
+    if (IS_DEMO_MODE || !user) return;
     const projectsRef = collection(db, 'artifacts', appId, 'public', 'data', 'projects');
     const personnelRef = collection(db, 'artifacts', appId, 'public', 'data', 'personnel');
     const vendorsRef = collection(db, 'artifacts', appId, 'public', 'data', 'vendors');
@@ -740,7 +755,7 @@ export default function DeXinProjectManager() {
             .then(() => setProjects(SEED_PROJECTS));
       } else { setProjects(fetched); }
     });
-    
+
     const unsubPersonnel = onSnapshot(query(personnelRef), (snapshot) => {
       const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       if (fetched.length === 0 && snapshot.metadata.fromCache === false) {
@@ -748,7 +763,7 @@ export default function DeXinProjectManager() {
             .then(() => setPersonnel(SEED_PERSONNEL));
       } else { setPersonnel(fetched); }
     });
-    
+
     const unsubVendors = onSnapshot(query(vendorsRef), (snapshot) => {
       const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       if (fetched.length === 0 && snapshot.metadata.fromCache === false) {
@@ -801,11 +816,16 @@ export default function DeXinProjectManager() {
       icraLevel: data.icraLevel || "I", zone: data.zone, projectType: data.projectType, 
       driveLink: data.driveLink, risk: data.nightShift ? "High" : "Medium", tasks: []
     };
-    try { 
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', newProjectId), newProject); 
+    if (IS_DEMO_MODE) {
+        setProjects(prev => [...prev, newProject]);
+        setAlertModal({ isOpen: true, title: "系統提示", message: "新專案已建立 (Demo模式)" });
+        return;
+    }
+    try {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', newProjectId), newProject);
         setAlertModal({ isOpen: true, title: "系統提示", message: "新專案已建立" });
-    } catch (e) { 
-        setAlertModal({ isOpen: true, title: "錯誤", message: "建立專案失敗" }); 
+    } catch (e) {
+        setAlertModal({ isOpen: true, title: "錯誤", message: "建立專案失敗" });
     }
   };
 
@@ -816,15 +836,21 @@ export default function DeXinProjectManager() {
         isOpen: true, title: "刪除專案", 
         message: `確定刪除「${projectToDelete.name}」？\n此動作將永久移除資料，且無法復原。`, 
         isDangerous: true, confirmText: "刪除", 
-        onConfirm: async () => { 
+        onConfirm: async () => {
+            if (IS_DEMO_MODE) {
+                setProjects(prev => prev.filter(p => p.id !== projectToDelete.id));
+                setSelectedProject(null); setEditingContract(null); setIsContractModalOpen(false);
+                setActiveTab('dashboard'); setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                return;
+            }
             try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', projectToDelete.id)); 
-                setSelectedProject(null); setEditingContract(null); setIsContractModalOpen(false); 
-                setActiveTab('dashboard'); setConfirmModal(prev => ({ ...prev, isOpen: false })); 
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', projectToDelete.id));
+                setSelectedProject(null); setEditingContract(null); setIsContractModalOpen(false);
+                setActiveTab('dashboard'); setConfirmModal(prev => ({ ...prev, isOpen: false }));
             } catch (error) {
                 setAlertModal({ isOpen: true, title: "錯誤", message: "刪除專案失敗" });
             }
-        } 
+        }
     });
   };
   
@@ -857,11 +883,16 @@ export default function DeXinProjectManager() {
     else if (updatedTasks.some(t => t.status === "In Progress")) { newStatus = "In Progress"; }
     else if (newStatus === "Completed" && completedTasks < totalTasks) { newStatus = "In Progress"; }
     
+    const updatedProjectData = { tasks: updatedTasks, progress: newProgress, status: newStatus };
+
+    if (IS_DEMO_MODE) {
+      setProjects(prev => prev.map(p => p.id === selectedProject.id ? { ...p, ...updatedProjectData } : p));
+      setEditingTask(null); setTaskModalOpen(false);
+      return;
+    }
     try {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', selectedProject.id), { 
-          tasks: updatedTasks, progress: newProgress, status: newStatus
-      });
-      
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', selectedProject.id), updatedProjectData);
+
       if (shouldSendEmail) {
           const supervisorPerson = personnel.find(p => p.name === taskData.supervisor);
           const email = supervisorPerson?.email;
@@ -870,7 +901,7 @@ export default function DeXinProjectManager() {
               const body = encodeURIComponent(`您好 ${taskData.supervisor},\n\n您已被指派為以下工項的督導人員：\n專案：${selectedProject.name}\n工項：${taskData.name}\n日期：${taskData.start} ~ ${taskData.end}\n衝擊：${taskData.impact}\n\n請協助監督執行。(系統自動發送)`);
               const link = document.createElement('a');
               link.href = `mailto:${email}?subject=${subject}&body=${body}`;
-              link.target = '_blank'; 
+              link.target = '_blank';
               document.body.appendChild(link);
               link.click();
               document.body.removeChild(link);
@@ -889,23 +920,27 @@ export default function DeXinProjectManager() {
   const handleDeleteTaskRequest = (task) => {
       setConfirmModal({ 
           isOpen: true, title: "刪除工項", message: "確定刪除？", confirmText: "刪除", isDangerous: true, 
-          onConfirm: async () => { 
+          onConfirm: async () => {
+              const newTasks = (selectedProject.tasks || []).filter(t => t.id !== task.id);
+              const totalTasks = newTasks.length;
+              const completedTasks = newTasks.filter(t => t.status === 'Completed').length;
+              const newProgress = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
+              let newStatus = selectedProject.status;
+              if (totalTasks > 0 && completedTasks === totalTasks) newStatus = "Completed";
+              else if (newTasks.some(t => t.status === "Delayed")) newStatus = "Delayed";
+              else if (newTasks.some(t => t.status === "In Progress")) newStatus = "In Progress";
+              else if (newStatus === "Completed" && completedTasks < totalTasks) newStatus = "In Progress";
+              const updateData = { tasks: newTasks, progress: newProgress, status: newStatus };
+              if (IS_DEMO_MODE) {
+                  setProjects(prev => prev.map(p => p.id === selectedProject.id ? { ...p, ...updateData } : p));
+                  setTaskModalOpen(false); setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                  return;
+              }
               try {
-                  const newTasks = (selectedProject.tasks || []).filter(t => t.id !== task.id); 
-                  const totalTasks = newTasks.length;
-                  const completedTasks = newTasks.filter(t => t.status === 'Completed').length;
-                  const newProgress = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
-                  let newStatus = selectedProject.status;
-                  if (totalTasks > 0 && completedTasks === totalTasks) newStatus = "Completed";
-                  else if (newTasks.some(t => t.status === "Delayed")) newStatus = "Delayed";
-                  else if (newTasks.some(t => t.status === "In Progress")) newStatus = "In Progress";
-                  else if (newStatus === "Completed" && completedTasks < totalTasks) newStatus = "In Progress";
-                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', selectedProject.id), { 
-                      tasks: newTasks, progress: newProgress, status: newStatus
-                  }); 
-                  setTaskModalOpen(false); setConfirmModal(prev => ({ ...prev, isOpen: false })); 
+                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', selectedProject.id), updateData);
+                  setTaskModalOpen(false); setConfirmModal(prev => ({ ...prev, isOpen: false }));
               } catch (e) { setAlertModal({ isOpen: true, title: "錯誤", message: "刪除工項失敗" }); }
-          } 
+          }
       });
   };
   
@@ -916,12 +951,22 @@ export default function DeXinProjectManager() {
     const payload = { ...(editingResource || {}), ...data, id };
     if (resourceType === 'personnel') { payload.status = payload.status || 'Active'; }
     Object.keys(payload).forEach(key => { if (payload[key] === undefined) { delete payload[key]; } });
-    try { 
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, id), payload); 
-        setIsResourceModalOpen(false); setEditingResource(null); 
-    } catch (e) { 
+    if (IS_DEMO_MODE) {
+        const setter = collectionName === 'personnel' ? setPersonnel : setVendors;
+        setter(prev => {
+            const exists = prev.find(item => item.id === id);
+            if (exists) return prev.map(item => item.id === id ? payload : item);
+            return [...prev, payload];
+        });
+        setIsResourceModalOpen(false); setEditingResource(null);
+        return;
+    }
+    try {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, id), payload);
+        setIsResourceModalOpen(false); setEditingResource(null);
+    } catch (e) {
         console.error("Save Resource Error:", e);
-        setAlertModal({ isOpen: true, title: "錯誤", message: "儲存失敗" }); 
+        setAlertModal({ isOpen: true, title: "錯誤", message: "儲存失敗" });
     }
   };
   
@@ -929,21 +974,32 @@ export default function DeXinProjectManager() {
     setConfirmModal({ 
         isOpen: true, title: `刪除${type === 'personnel' ? '人員' : '廠商'}`, 
         message: `確定刪除 ${item.name} 嗎？`, confirmText: "刪除", isDangerous: true, 
-        onConfirm: async () => { 
+        onConfirm: async () => {
+            if (IS_DEMO_MODE) {
+                const setter = type === 'personnel' ? setPersonnel : setVendors;
+                setter(prev => prev.filter(r => r.id !== item.id));
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                return;
+            }
             try {
-                const collectionName = type === 'personnel' ? 'personnel' : 'vendors'; 
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, item.id)); 
-                setConfirmModal(prev => ({ ...prev, isOpen: false })); 
+                const collectionName = type === 'personnel' ? 'personnel' : 'vendors';
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, item.id));
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
             } catch (e) { setAlertModal({ isOpen: true, title: "錯誤", message: "刪除失敗" }); }
         } 
     });
   };
   
-  const handleSaveContract = async (contractData) => { 
-      if (!editingContract) return; 
+  const handleSaveContract = async (contractData) => {
+      if (!editingContract) return;
+      if (IS_DEMO_MODE) {
+          setProjects(prev => prev.map(p => p.id === editingContract.id ? { ...p, ...contractData } : p));
+          setIsContractModalOpen(false); setEditingContract(null);
+          return;
+      }
       try {
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', editingContract.id), contractData); 
-          setIsContractModalOpen(false); setEditingContract(null); 
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', editingContract.id), contractData);
+          setIsContractModalOpen(false); setEditingContract(null);
       } catch (error) { setAlertModal({ isOpen: true, title: "錯誤", message: "儲存合約失敗" }); }
   };
 
@@ -972,7 +1028,7 @@ export default function DeXinProjectManager() {
            <button onClick={() => setActiveTab('vendor')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'vendor' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Icon name="hammer" size={20} /><span className="font-medium">廠商管理</span></button>
           <button onClick={() => setActiveTab('personnel')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'personnel' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Icon name="users" size={20} /><span className="font-medium">人員管理</span></button>
         </nav>
-        <div className="p-4 border-t border-slate-800"><div className="bg-slate-800 rounded-lg p-3 text-xs text-slate-400"><p className="font-bold text-slate-300 mb-1">系統狀態</p><div className="flex items-center gap-2 mb-1"><Icon name="database" size={10} className="text-green-400"/><span>連線正常 (Firestore)</span></div><p className="mt-2 text-yellow-500 flex items-center gap-1"><Icon name="alert-triangle" size={10} /> 防護機制運行中</p></div></div>
+        <div className="p-4 border-t border-slate-800"><div className="bg-slate-800 rounded-lg p-3 text-xs text-slate-400"><p className="font-bold text-slate-300 mb-1">系統狀態</p>{IS_DEMO_MODE ? (<><div className="flex items-center gap-2 mb-1"><Icon name="wifi-off" size={10} className="text-orange-400"/><span>Demo 模式 (本機資料)</span></div><p className="mt-2 text-orange-400 flex items-center gap-1"><Icon name="info" size={10} /> 資料不會儲存至雲端</p></>) : (<><div className="flex items-center gap-2 mb-1"><Icon name="database" size={10} className="text-green-400"/><span>連線正常 (Firestore)</span></div><p className="mt-2 text-yellow-500 flex items-center gap-1"><Icon name="alert-triangle" size={10} /> 防護機制運行中</p></>)}</div></div>
       </div>
       
       {/* Mobile Bottom Nav */}
