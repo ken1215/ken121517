@@ -829,6 +829,99 @@ export default function DeXinProjectManager() {
     }
   };
 
+  const handleCreateWalkthroughProject = async () => {
+    if (!user) return;
+
+    const existingProject = projects.find(project => project.name === '教學示範專案');
+    if (existingProject) {
+      setSelectedProject(existingProject);
+      setActiveTab('detail');
+      setAlertModal({ isOpen: true, title: '系統提示', message: '教學示範專案已存在，已直接帶你進入專案明細。' });
+      return;
+    }
+
+    const today = new Date();
+    const plusDays = (days) => {
+      const nextDate = new Date(today);
+      nextDate.setDate(nextDate.getDate() + days);
+      return nextDate.toISOString().split('T')[0];
+    };
+
+    const walkthroughProject = {
+      id: `walkthrough_${Date.now()}`,
+      name: '教學示範專案',
+      manager: '系統教學模式',
+      status: 'In Progress',
+      progress: 33,
+      budget: 1500000,
+      spent: 320000,
+      startDate: plusDays(0),
+      endDate: plusDays(21),
+      icraLevel: 'II',
+      zone: 'A 棟 3F',
+      projectType: '專案工程管理',
+      driveLink: 'https://drive.google.com',
+      risk: 'Medium',
+      contractNo: 'DEMO-2026-001',
+      contractStatus: 'Signed',
+      tasks: [
+        {
+          id: Date.now(),
+          name: '需求確認與 Kickoff',
+          start: plusDays(0),
+          end: plusDays(2),
+          status: 'Completed',
+          impact: '會議',
+          assignee: '系統教學模式',
+          vendor: '教學範例廠商',
+          files: [],
+          dailyUpdates: [{ date: plusDays(0), author: '系統', content: '已建立啟動會議與需求範圍。' }]
+        },
+        {
+          id: Date.now() + 1,
+          name: '施工排程建置',
+          start: plusDays(3),
+          end: plusDays(7),
+          status: 'In Progress',
+          impact: '行政流程',
+          assignee: '系統教學模式',
+          vendor: '教學範例廠商',
+          files: [],
+          dailyUpdates: [{ date: plusDays(4), author: '系統', content: '已建立基礎施工與驗收節點。' }]
+        },
+        {
+          id: Date.now() + 2,
+          name: '驗收與結案',
+          start: plusDays(14),
+          end: plusDays(21),
+          status: 'Pending',
+          impact: '行政流程',
+          assignee: '系統教學模式',
+          vendor: '教學範例廠商',
+          files: [],
+          dailyUpdates: []
+        }
+      ]
+    };
+
+    if (IS_DEMO_MODE) {
+      setProjects(prev => [...prev, walkthroughProject]);
+      setSelectedProject(walkthroughProject);
+      setActiveTab('detail');
+      setAlertModal({ isOpen: true, title: '系統提示', message: '已建立教學示範專案，你可以直接查看完整流程。' });
+      return;
+    }
+
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', walkthroughProject.id), walkthroughProject);
+      setSelectedProject(walkthroughProject);
+      setActiveTab('detail');
+      setAlertModal({ isOpen: true, title: '系統提示', message: '已建立教學示範專案，你可以直接查看完整流程。' });
+    } catch (e) {
+      setAlertModal({ isOpen: true, title: '錯誤', message: '建立教學示範專案失敗' });
+    }
+  };
+
   const handleDeleteProjectRequest = (targetProject) => {
     const projectToDelete = targetProject || selectedProject;
     if (!projectToDelete || !user) return;
@@ -1053,6 +1146,36 @@ export default function DeXinProjectManager() {
             {/* DASHBOARD VIEW */}
             {activeTab === 'dashboard' && (
                 <>
+                 <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 text-white rounded-2xl p-6 md:p-8 mb-6 shadow-lg">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+                        <div className="max-w-3xl">
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-xs font-semibold tracking-wide mb-4">
+                                <Icon name="sparkles" size={14} className="text-yellow-300" />
+                                新手實作導覽
+                            </div>
+                            <h2 className="text-2xl md:text-3xl font-bold mb-3">用一個教學專案，快速走完「建立 → 編輯 → 檢視 → 驗證」流程</h2>
+                            <p className="text-sm md:text-base text-slate-200 leading-7">如果你想了解實際操作方式，可以先建立一個內建的教學示範專案，再依序查看預算、工項、進度與結案欄位，最後再自己新增專案做第二次練習。</p>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <button onClick={handleCreateWalkthroughProject} className="px-4 py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 transition-colors shadow-sm flex items-center justify-center gap-2"><Icon name="plus" size={18} /> 一鍵建立教學專案</button>
+                            <button onClick={() => setIsNewProjectModalOpen(true)} className="px-4 py-3 rounded-xl border border-white/20 bg-white/10 text-white font-semibold hover:bg-white/15 transition-colors flex items-center justify-center gap-2"><Icon name="pen-tool" size={18} /> 自己建立一筆</button>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-6">
+                        {[
+                            ['01', '建立資料', '先點「一鍵建立教學專案」，快速產生可操作的範例。'],
+                            ['02', '查看細節', '進入專案明細後，觀察狀態、預算、工項與日誌如何串起來。'],
+                            ['03', '修改工項', '點任一工項可開啟編輯視窗，練習更新日期、負責人與進度。'],
+                            ['04', '回到列表驗證', '回總覽、預算、人員與廠商頁籤，確認資料如何反映在不同視圖。']
+                        ].map(([step, title, description]) => (
+                            <div key={step} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                                <div className="text-xs font-bold text-blue-200 mb-2">STEP {step}</div>
+                                <div className="font-semibold mb-1">{title}</div>
+                                <p className="text-sm text-slate-200 leading-6">{description}</p>
+                            </div>
+                        ))}
+                    </div>
+                 </div>
                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6 mb-6">
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden flex flex-row md:flex-col justify-between items-center">
                         <div><p className="text-slate-500 text-sm font-medium">執行中專案</p><h3 className="text-2xl md:text-3xl font-bold text-slate-800">{stats.total} <span className="text-sm font-normal text-slate-400">件</span></h3></div>
