@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import TokenUsageMonitor from './TokenUsageMonitor.jsx';
 import { 
   Calendar, 
   AlertTriangle, 
@@ -57,8 +58,9 @@ import {
   Truck,
   Database,
   MessageCircle,
-  ArrowUpRight, 
-  ArrowDownRight
+  ArrowUpRight,
+  ArrowDownRight,
+  Zap
 } from 'lucide-react';
 // --- Firebase Imports ---
 import { initializeApp } from 'firebase/app';
@@ -170,7 +172,8 @@ const ICON_MAP = {
   "wifi": Wifi,
   "wifi-off": WifiOff,
   "x": X,
-  "x-circle": XCircle
+  "x-circle": XCircle,
+  "zap": Zap
 };
 
 const Icon = ({ name, size = 24, className = "" }) => {
@@ -1027,6 +1030,7 @@ export default function DeXinProjectManager() {
           <button onClick={() => setActiveTab('budget')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'budget' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Icon name="file-text" size={20} /><span className="font-medium">合約與預算</span></button>
            <button onClick={() => setActiveTab('vendor')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'vendor' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Icon name="hammer" size={20} /><span className="font-medium">廠商管理</span></button>
           <button onClick={() => setActiveTab('personnel')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'personnel' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Icon name="users" size={20} /><span className="font-medium">人員管理</span></button>
+          <button onClick={() => setActiveTab('tokenMonitor')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'tokenMonitor' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><Icon name="zap" size={20} /><span className="font-medium">Token 監控</span></button>
         </nav>
         <div className="p-4 border-t border-slate-800"><div className="bg-slate-800 rounded-lg p-3 text-xs text-slate-400"><p className="font-bold text-slate-300 mb-1">系統狀態</p>{IS_DEMO_MODE ? (<><div className="flex items-center gap-2 mb-1"><Icon name="wifi-off" size={10} className="text-orange-400"/><span>Demo 模式 (本機資料)</span></div><p className="mt-2 text-orange-400 flex items-center gap-1"><Icon name="info" size={10} /> 資料不會儲存至雲端</p></>) : (<><div className="flex items-center gap-2 mb-1"><Icon name="database" size={10} className="text-green-400"/><span>連線正常 (Firestore)</span></div><p className="mt-2 text-yellow-500 flex items-center gap-1"><Icon name="alert-triangle" size={10} /> 防護機制運行中</p></>)}</div></div>
       </div>
@@ -1037,12 +1041,13 @@ export default function DeXinProjectManager() {
           <button onClick={() => setActiveTab('budget')} className={`flex flex-col items-center text-xs ${activeTab === 'budget' ? 'text-blue-600' : 'text-slate-400'}`}><Icon name="file-text" size={24} /><span className="mt-1">預算</span></button>
           <button onClick={() => setActiveTab('vendor')} className={`flex flex-col items-center text-xs ${activeTab === 'vendor' ? 'text-blue-600' : 'text-slate-400'}`}><Icon name="hammer" size={24} /><span className="mt-1">廠商</span></button>
           <button onClick={() => setActiveTab('personnel')} className={`flex flex-col items-center text-xs ${activeTab === 'personnel' ? 'text-blue-600' : 'text-slate-400'}`}><Icon name="users" size={24} /><span className="mt-1">人員</span></button>
+          <button onClick={() => setActiveTab('tokenMonitor')} className={`flex flex-col items-center text-xs ${activeTab === 'tokenMonitor' ? 'text-blue-600' : 'text-slate-400'}`}><Icon name="zap" size={24} /><span className="mt-1">Token</span></button>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
         <header className="h-16 bg-white shadow-sm flex items-center justify-between px-4 md:px-8 border-b border-slate-200">
-          <h2 className="text-lg md:text-xl font-bold text-slate-800 truncate max-w-[200px] md:max-w-none">{activeTab === 'dashboard' ? '德新物業_專案工程處 - 專案總覽' : activeTab === 'personnel' ? '人員管理中心' : activeTab === 'vendor' ? '合格廠商資料庫' : activeTab === 'budget' ? '合約與預算總表' : selectedProject?.name}</h2>
+          <h2 className="text-lg md:text-xl font-bold text-slate-800 truncate max-w-[200px] md:max-w-none">{activeTab === 'dashboard' ? '德新物業_專案工程處 - 專案總覽' : activeTab === 'personnel' ? '人員管理中心' : activeTab === 'vendor' ? '合格廠商資料庫' : activeTab === 'budget' ? '合約與預算總表' : activeTab === 'tokenMonitor' ? 'Claude Token 用量監控' : selectedProject?.name}</h2>
           <div className="flex items-center gap-4">
             {activeTab === 'dashboard' && (<button onClick={() => setIsNewProjectModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-sm"><Icon name="plus" size={16} /> 新增專案</button>)}
             {activeTab === 'personnel' && (<button onClick={() => openResourceModal('personnel')} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-sm"><Icon name="plus" size={16} /> 新增人員</button>)}
@@ -1273,6 +1278,11 @@ export default function DeXinProjectManager() {
                      </div>
                  </div>
                 </>
+            )}
+
+            {/* TOKEN USAGE MONITOR */}
+            {activeTab === 'tokenMonitor' && (
+              <TokenUsageMonitor />
             )}
 
             {/* PROJECT DETAIL VIEW */}
